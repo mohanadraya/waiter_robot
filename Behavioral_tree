@@ -1,1 +1,138 @@
+import py_trees
+import time
 
+# Simulated robot state
+robot_state = {
+    "table_number": 3,
+    "food_loaded": False,
+    "tag_detected": None,
+    "at_table": False,
+    "at_base": True
+}
+
+# Simulate movement and camera detection
+def line_follow_step():
+    print("🚗 Line following...")
+
+def detect_apriltag_from_camera():
+    print("🔍 Scanning for AprilTag...")
+    # For now we simulate always seeing tag 3
+    return 3
+
+# === Behavior Tree Nodes ===
+
+class TableNumberReceived(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="TableNumberReceived")
+
+    def update(self):
+        if robot_state["table_number"] is not None:
+            print(f"📥 Table number received: {robot_state['table_number']}")
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
+
+class FoodIsLoaded(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="FoodIsLoaded")
+
+    def update(self):
+        if robot_state["food_loaded"]:
+            print("🍽️ Food is loaded.")
+            return py_trees.common.Status.SUCCESS
+        print("⏳ Waiting for food to be loaded...")
+        return py_trees.common.Status.RUNNING
+
+class FollowAndDetect(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="FollowAndDetect")
+
+    def update(self):
+        line_follow_step()
+        tag_id = detect_apriltag_from_camera()
+
+        if tag_id is not None:
+            robot_state["tag_detected"] = tag_id
+            print(f"✅ Tag detected: {tag_id}")
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.RUNNING
+
+class TagMatchesTable(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="TagMatchesTable")
+
+    def update(self):
+        if robot_state["tag_detected"] == robot_state["table_number"]:
+            print("🎯 Tag matches the table number.")
+            robot_state["at_table"] = True
+            return py_trees.common.Status.SUCCESS
+        print("🔁 Tag does not match.")
+        return py_trees.common.Status.FAILURE
+
+class AnnounceDelivery(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="AnnounceDelivery")
+
+    def update(self):
+        if robot_state["at_table"]:
+            print("📢 Order delivered to table.")
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
+
+class ReturnToStart(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="ReturnToStart")
+
+    def update(self):
+        print("🔙 Returning to start position...")
+        robot_state["at_base"] = True
+        return py_trees.common.Status.SUCCESS
+
+class Idle(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="Idle")
+
+    def update(self):
+        print("😴 Waiting for new order...")
+        return py_trees.common.Status.RUNNING
+
+# === Behavior Tree Construction ===
+
+def create_behavior_tree():
+    root = py_trees.composites.Selector(name="Root", memory=False)
+
+    deliver_sequence = py_trees.composites.Sequence(name="DeliverFood", memory=False)
+    deliver_sequence.add_children([
+        TableNumberReceived(),
+        FoodIsLoaded(),
+        FollowAndDetect(),
+        TagMatchesTable(),
+        AnnounceDelivery(),
+        ReturnToStart()
+    ])
+
+    idle = Idle()
+    root.add_children([deliver_sequence, idle])
+
+    return root
+
+# === Run the Tree (Simulation) ===
+
+if __name__ == "__main__":
+    tree = create_behavior_tree()
+    bt = py_trees.trees.BehaviourTree(tree)
+
+    # Add SnapshotVisitor to see live updates
+    bt.visitors.append(py_trees.visitors.SnapshotVisitor())
+
+    for i in range(10):
+        print(f"\n🔄 Tick {i}")
+        if i == 3:
+            robot_state["food_loaded"] = True
+
+        bt.tick()
+
+        # Show live status tree
+        snapshot_visitor = bt.visitors[0]
+        print(py_trees.display.unicode_tree(bt.root, visited=snapshot_visitor.visited))
+
+        time.sleep(1)
