@@ -1,25 +1,57 @@
 import py_trees
 import time
 
-# Simulated robot state
+# === Robot State (shared memory) ===
 robot_state = {
-    "table_number": 3,
-    "food_loaded": False,
-    "tag_detected": None,
-    "at_table": False,
-    "at_base": True
+    "table_number": None,      # Set this from Telegram
+    "food_loaded": False,      # Set by chef manually or sensor
+    "tag_detected": None,      # Filled by AprilTag detection
+    "at_table": False,         # Marked after successful delivery
+    "at_base": True            # Updated when robot returns
 }
 
-# Simulate movement and camera detection
+# === Hardware-Ready Functions ===
+
 def line_follow_step():
-    print("🚗 Line following...")
+    """
+    Replace this with your real IR sensor + motor control logic.
+    """
+    # Example:
+    # ir_values = read_ir_array()
+    # adjust_motors(ir_values)
+    pass
 
 def detect_apriltag_from_camera():
-    print("🔍 Scanning for AprilTag...")
-    # For now we simulate always seeing tag 3
-    return 3
+    """
+    Replace this with your real OpenCV + camera detection code independent function.
+    Return detected tag ID or None.
+    """
+    # Example:
+    # frame = camera.read()
+    # tag_id = detect_tag(frame)
+    # return tag_id
+    return None
 
-# === Behavior Tree Nodes ===
+def return_to_base():
+    """
+    Implement your actual logic to follow the line back to the base.
+    """
+    # Example:
+    # while not at_base_position():
+    #     line_follow_step()
+    pass
+
+def announce_delivery():
+    """
+    Add sound, LED, or message to Telegram to indicate delivery.
+    """
+    # Example:
+    # buzzer.beep()
+    # led.blink()
+    # telegram_bot.send_message("Order delivered")
+    pass
+
+# === BT Nodes ===
 
 class TableNumberReceived(py_trees.behaviour.Behaviour):
     def __init__(self):
@@ -27,7 +59,6 @@ class TableNumberReceived(py_trees.behaviour.Behaviour):
 
     def update(self):
         if robot_state["table_number"] is not None:
-            print(f"📥 Table number received: {robot_state['table_number']}")
             return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.FAILURE
 
@@ -37,9 +68,7 @@ class FoodIsLoaded(py_trees.behaviour.Behaviour):
 
     def update(self):
         if robot_state["food_loaded"]:
-            print("🍽️ Food is loaded.")
             return py_trees.common.Status.SUCCESS
-        print("⏳ Waiting for food to be loaded...")
         return py_trees.common.Status.RUNNING
 
 class FollowAndDetect(py_trees.behaviour.Behaviour):
@@ -52,7 +81,6 @@ class FollowAndDetect(py_trees.behaviour.Behaviour):
 
         if tag_id is not None:
             robot_state["tag_detected"] = tag_id
-            print(f"✅ Tag detected: {tag_id}")
             return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.RUNNING
 
@@ -62,10 +90,8 @@ class TagMatchesTable(py_trees.behaviour.Behaviour):
 
     def update(self):
         if robot_state["tag_detected"] == robot_state["table_number"]:
-            print("🎯 Tag matches the table number.")
             robot_state["at_table"] = True
             return py_trees.common.Status.SUCCESS
-        print("🔁 Tag does not match.")
         return py_trees.common.Status.FAILURE
 
 class AnnounceDelivery(py_trees.behaviour.Behaviour):
@@ -74,7 +100,7 @@ class AnnounceDelivery(py_trees.behaviour.Behaviour):
 
     def update(self):
         if robot_state["at_table"]:
-            print("📢 Order delivered to table.")
+            announce_delivery()
             return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.FAILURE
 
@@ -83,7 +109,7 @@ class ReturnToStart(py_trees.behaviour.Behaviour):
         super().__init__(name="ReturnToStart")
 
     def update(self):
-        print("🔙 Returning to start position...")
+        return_to_base()
         robot_state["at_base"] = True
         return py_trees.common.Status.SUCCESS
 
@@ -92,10 +118,9 @@ class Idle(py_trees.behaviour.Behaviour):
         super().__init__(name="Idle")
 
     def update(self):
-        print("😴 Waiting for new order...")
         return py_trees.common.Status.RUNNING
 
-# === Behavior Tree Construction ===
+# === Build the Behavior Tree ===
 
 def create_behavior_tree():
     root = py_trees.composites.Selector(name="Root", memory=False)
@@ -112,27 +137,21 @@ def create_behavior_tree():
 
     idle = Idle()
     root.add_children([deliver_sequence, idle])
-
     return root
 
-# === Run the Tree (Simulation) ===
+# === Run the Tree Loop (in main robot loop) ===
 
 if __name__ == "__main__":
     tree = create_behavior_tree()
     bt = py_trees.trees.BehaviourTree(tree)
-
-    # Add SnapshotVisitor to see live updates
     bt.visitors.append(py_trees.visitors.SnapshotVisitor())
 
-    for i in range(10):
-        print(f"\n🔄 Tick {i}")
-        if i == 3:
-            robot_state["food_loaded"] = True
-
+    # Main robot loop
+    while True:
         bt.tick()
 
-        # Show live status tree
-        snapshot_visitor = bt.visitors[0]
-        print(py_trees.display.unicode_tree(bt.root, visited=snapshot_visitor.visited))
+        # Optional: show BT status in console
+        snapshot = bt.visitors[0]
+        print(py_trees.display.unicode_tree(bt.root, visited=snapshot.visited))
 
-        time.sleep(1)
+        time.sleep(0.1)  # Adjust as needed
