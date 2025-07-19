@@ -1,25 +1,40 @@
-from motors.motor_driver import move_left, move_right, stop, cleanup
-from sensors.ir_sensor import read_ir_sensors
 import time
+from sensors.ir_sensor import setup_ir, read_ir, cleanup_ir
+from motors.motor_driver import setup_motors, move_forward, turn_left, turn_right, stop_motors, cleanup_motors
 
-try:
-    while True:
-        right_ir, left_ir = read_ir_sensors()
-        print(f"Right IR: {right_ir}, Left IR: {left_ir}")
 
-        if right_ir and not left_ir:
+def follow_line():
+    setup_ir()
+    setup_motors()
+    print("line folowing")
 
-            move_right()
-        elif left_ir and not right_ir:
 
-            move_left()
-#        else:
+    try:
 
-#            stop()
+        while True:
+            left, right = read_ir()
+            print(left ,"  " ,right)
+            if left == 0 and right == 0:
+                move_forward()
+            elif left == 1 and right == 1:
+                turn_left()
+            elif left == 0 and right == 1:
+                turn_right()
+            else:
+                stop_motors()
+                print("robot stop")
 
-        time.sleep(0.1)
+            time.sleep(0.05)
 
-except KeyboardInterrupt:
-    print("robot stop")
-    cleanup()
+    except KeyboardInterrupt:
+        print("ropor foreced stop.")
+
+    finally:
+        stop_motors()
+        cleanup_ir()
+        cleanup_motors()
+
+if __name__ == "__main__":
+    follow_line()
+
 

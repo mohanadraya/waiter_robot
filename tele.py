@@ -1,0 +1,51 @@
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram import KeyboardButton
+# المراحل
+SELECT_MEAL, SELECT_TABLE = range(2)
+
+meals = ["🍔 برجر", "🍕 بيتزا", "🥗 سلطة"]
+tables = ["1", "2", "3", "4", "5", "6"]
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reply_markup = ReplyKeyboardMarkup([[m] for m in meals], one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("مرحبًا بك في مطعمنا! اختر وجبتك:", reply_markup=reply_markup)
+    return SELECT_MEAL
+
+async def select_meal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["meal"] = update.message.text
+    reply_markup = ReplyKeyboardMarkup([[t] for t in tables], one_time_keyboard=True, resize_keyboard=True)
+    await update.message.reply_text("جميل! اختر رقم طاولتك:", reply_markup=reply_markup)
+    return SELECT_TABLE
+
+async def select_table(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["table"] = update.message.text
+    meal = context.user_data["meal"]
+    table = context.user_data["table"]
+    print("رقم الطاولة", table)
+
+    await update.message.reply_text(f"✅ تم استلام طلبك: {meal} لطاولة رقم {table}. شكرًا لك!")
+
+    # إعادة عرض زر /start بعد إنهاء المحادثة
+    reply_markup = ReplyKeyboardMarkup([[KeyboardButton("/start")]], resize_keyboard=True)
+    await update.message.reply_text("هل ترغب في تقديم طلب آخر؟ اضغط على /start 👇", reply_markup=reply_markup)
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("تم إلغاء الطلب.")
+    return ConversationHandler.END
+
+# إعداد التطبيق
+app = ApplicationBuilder().token("8140327281:AAFIpnPVZuTQfHSLZUMQg_wwf1apBFioNfs").build()
+
+conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("start", start)],
+    states={
+        SELECT_MEAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_meal)],
+        SELECT_TABLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, select_table)],
+    },
+    fallbacks=[CommandHandler("cancel", cancel)],
+)
+
+app.add_handler(conv_handler)
+
+app.run_polling()
