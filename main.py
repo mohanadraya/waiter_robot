@@ -16,7 +16,7 @@ def follow_line():
             print(left ,"  " ,right)
             if left == 0 and right == 0:
                 move_forward()
-            elif left == 1 and right == 1:
+            elif left == 1 and right == 0:
                 turn_left()
             elif left == 0 and right == 1:
                 turn_right()

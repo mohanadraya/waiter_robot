@@ -1,6 +1,6 @@
 import RPi.GPIO as GPIO
 
-LEFT_IR_PIN = 17
+LEFT_IR_PIN = 18
 RIGHT_IR_PIN = 27
 
 def setup_ir():

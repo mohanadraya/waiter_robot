@@ -1,55 +1,51 @@
-import py_trees
 import time
+import py_trees
+
+from sensors.ir_sensor import setup_ir, read_ir, cleanup_ir
+from motors.motor_driver import setup_motors, move_forward, turn_left, turn_right, stop_motors, cleanup_motors
 
 # === Robot State (shared memory) ===
 robot_state = {
-    "table_number": None,      # Set this from Telegram
-    "food_loaded": False,      # Set by chef manually or sensor
+    "table_number": 1,      # Set this from Telegram
+    "food_loaded": True,      # Set by chef manually or sensor
     "tag_detected": None,      # Filled by AprilTag detection
     "at_table": False,         # Marked after successful delivery
     "at_base": True            # Updated when robot returns
 }
 
+# === Setup hardware once ===
+setup_ir()
+setup_motors()
+
 # === Hardware-Ready Functions ===
 
 def line_follow_step():
-    """
-    Replace this with your real IR sensor + motor control logic.
-    """
-    # Example:
-    # ir_values = read_ir_array()
-    # adjust_motors(ir_values)
-    pass
+    left, right = read_ir()
+    print("IR:", left, right)
+
+    if left == 0 and right == 0:
+        move_forward()
+    elif left == 1 and right == 0:
+        turn_left()
+    elif left == 0 and right == 1:
+        turn_right()
+    else:
+        stop_motors()
+        print("robot stop")
 
 def detect_apriltag_from_camera():
-    """
-    Replace this with your real OpenCV + camera detection code independent function.
-    Return detected tag ID or None.
-    """
-    # Example:
-    # frame = camera.read()
-    # tag_id = detect_tag(frame)
-    # return tag_id
-    return None
+    # Replace this with real camera + AprilTag detection logic
+    return None  # For simulation/testing
 
 def return_to_base():
-    """
-    Implement your actual logic to follow the line back to the base.
-    """
-    # Example:
-    # while not at_base_position():
-    #     line_follow_step()
-    pass
+    print("Returning to base...")
+    for _ in range(100):  # Dummy loop
+        line_follow_step()
+        time.sleep(0.05)
+    stop_motors()
 
 def announce_delivery():
-    """
-    Add sound, LED, or message to Telegram to indicate delivery.
-    """
-    # Example:
-    # buzzer.beep()
-    # led.blink()
-    # telegram_bot.send_message("Order delivered")
-    pass
+    print("Delivery announced via LED/buzzer/Telegram")
 
 # === BT Nodes ===
 
@@ -58,18 +54,14 @@ class TableNumberReceived(py_trees.behaviour.Behaviour):
         super().__init__(name="TableNumberReceived")
 
     def update(self):
-        if robot_state["table_number"] is not None:
-            return py_trees.common.Status.SUCCESS
-        return py_trees.common.Status.FAILURE
+        return py_trees.common.Status.SUCCESS if robot_state["table_number"] else py_trees.common.Status.FAILURE
 
 class FoodIsLoaded(py_trees.behaviour.Behaviour):
     def __init__(self):
         super().__init__(name="FoodIsLoaded")
 
     def update(self):
-        if robot_state["food_loaded"]:
-            return py_trees.common.Status.SUCCESS
-        return py_trees.common.Status.RUNNING
+        return py_trees.common.Status.SUCCESS if robot_state["food_loaded"] else py_trees.common.Status.RUNNING
 
 class FollowAndDetect(py_trees.behaviour.Behaviour):
     def __init__(self):
@@ -118,6 +110,7 @@ class Idle(py_trees.behaviour.Behaviour):
         super().__init__(name="Idle")
 
     def update(self):
+        stop_motors()
         return py_trees.common.Status.RUNNING
 
 # === Build the Behavior Tree ===
@@ -142,16 +135,21 @@ def create_behavior_tree():
 # === Run the Tree Loop (in main robot loop) ===
 
 if __name__ == "__main__":
-    tree = create_behavior_tree()
-    bt = py_trees.trees.BehaviourTree(tree)
-    bt.visitors.append(py_trees.visitors.SnapshotVisitor())
+    try:
+        tree = create_behavior_tree()
+        bt = py_trees.trees.BehaviourTree(tree)
+        bt.visitors.append(py_trees.visitors.SnapshotVisitor())
 
-    # Main robot loop
-    while True:
-        bt.tick()
+        while True:
+            bt.tick()
+            snapshot = bt.visitors[0]
+            print(py_trees.display.unicode_tree(bt.root, visited=snapshot.visited))
+            time.sleep(0.1)
 
-        # Optional: show BT status in console
-        snapshot = bt.visitors[0]
-        print(py_trees.display.unicode_tree(bt.root, visited=snapshot.visited))
+    except KeyboardInterrupt:
+        print("Robot stopped manually.")
 
-        time.sleep(0.1)  # Adjust as needed
+    finally:
+        stop_motors()
+        cleanup_ir()
+        cleanup_motors()
