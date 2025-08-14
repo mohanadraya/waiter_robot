@@ -1,43 +1,155 @@
-import RPi.GPIO as GPIO
 import time
+import py_trees
 
-MOTOR_PIN = 22  # ����� ��� ���
+from sensors.ir_sensor import setup_ir, read_ir, cleanup_ir
+from motors.motor_driver import setup_motors, move_forward, turn_left, turn_right, stop_motors, cleanup_motors
 
-def setup_motor():
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(MOTOR_PIN, GPIO.OUT)
-    global pwm
-    pwm = GPIO.PWM(MOTOR_PIN, 50)  # 50Hz
-    pwm.start(0)
+# === Robot State (shared memory) ===
+robot_state = {
+    "table_number": 1,      # Set this from Telegram
+    "food_loaded": True,      # Set by chef manually or sensor
+    "tag_detected": None,      # Filled by AprilTag detection
+    "at_table": False,         # Marked after successful delivery
+    "at_base": True            # Updated when robot returns
+}
 
-def test_servo():
-    print("Neutral (7.5) - ����")
-    pwm.ChangeDutyCycle(7.5)
-    time.sleep(2)
+# === Setup hardware once ===
+setup_ir()
+setup_motors()
 
-    print("���� ����� (6.0) - �����/���� ������ ����")
-    pwm.ChangeDutyCycle(6.0)
-    time.sleep(3)
+# === Hardware-Ready Functions ===
 
-    print("Neutral (7.5) - ����")
-    pwm.ChangeDutyCycle(7.5)
-    time.sleep(2)
+def line_follow_step():
+    left, right = read_ir()
+    print("IR:", left, right)
 
-    print("���� ����� (9.0) - �����/���� �������� �����")
-    pwm.ChangeDutyCycle(9.0)
-    time.sleep(3)
+    if left == 0 and right == 0:
+        move_forward()
+    elif left == 1 and right == 0:
+        turn_left()
+    elif left == 0 and right == 1:
+        turn_right()
+    else:
+        stop_motors()
+        print("robot stop")
 
-    print("Neutral (7.5) - ����")
-    pwm.ChangeDutyCycle(7.5)
-    time.sleep(2)
+def detect_apriltag_from_camera():
+    # Replace this with real camera + AprilTag detection logic
+    return None  # For simulation/testing
 
-def cleanup_motor():
-    pwm.stop()
-    GPIO.cleanup([MOTOR_PIN])
+def return_to_base():
+    print("Returning to base...")
+    for _ in range(100):  # Dummy loop
+        line_follow_step()
+        time.sleep(0.05)
+    stop_motors()
+
+def announce_delivery():
+    print("Delivery announced via LED/buzzer/Telegram")
+
+# === BT Nodes ===
+
+class TableNumberReceived(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="TableNumberReceived")
+
+    def update(self):
+        return py_trees.common.Status.SUCCESS if robot_state["table_number"] else py_trees.common.Status.FAILURE
+
+class FoodIsLoaded(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="FoodIsLoaded")
+
+    def update(self):
+        return py_trees.common.Status.SUCCESS if robot_state["food_loaded"] else py_trees.common.Status.RUNNING
+
+class FollowAndDetect(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="FollowAndDetect")
+
+    def update(self):
+        line_follow_step()
+        tag_id = detect_apriltag_from_camera()
+
+        if tag_id is not None:
+            robot_state["tag_detected"] = tag_id
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.RUNNING
+
+class TagMatchesTable(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="TagMatchesTable")
+
+    def update(self):
+        if robot_state["tag_detected"] == robot_state["table_number"]:
+            robot_state["at_table"] = True
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
+
+class AnnounceDelivery(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="AnnounceDelivery")
+
+    def update(self):
+        if robot_state["at_table"]:
+            announce_delivery()
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
+
+class ReturnToStart(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="ReturnToStart")
+
+    def update(self):
+        return_to_base()
+        robot_state["at_base"] = True
+        return py_trees.common.Status.SUCCESS
+
+class Idle(py_trees.behaviour.Behaviour):
+    def __init__(self):
+        super().__init__(name="Idle")
+
+    def update(self):
+        stop_motors()
+        return py_trees.common.Status.RUNNING
+
+# === Build the Behavior Tree ===
+
+def create_behavior_tree():
+    root = py_trees.composites.Selector(name="Root", memory=False)
+
+    deliver_sequence = py_trees.composites.Sequence(name="DeliverFood", memory=False)
+    deliver_sequence.add_children([
+        TableNumberReceived(),
+        FoodIsLoaded(),
+        FollowAndDetect(),
+        TagMatchesTable(),
+        AnnounceDelivery(),
+        ReturnToStart()
+    ])
+
+    idle = Idle()
+    root.add_children([deliver_sequence, idle])
+    return root
+
+# === Run the Tree Loop (in main robot loop) ===
 
 if __name__ == "__main__":
-    setup_motor()
     try:
-        test_servo()
+        tree = create_behavior_tree()
+        bt = py_trees.trees.BehaviourTree(tree)
+        bt.visitors.append(py_trees.visitors.SnapshotVisitor())
+
+        while True:
+            bt.tick()
+            snapshot = bt.visitors[0]
+            print(py_trees.display.unicode_tree(bt.root, visited=snapshot.visited))
+            time.sleep(0.1)
+
+    except KeyboardInterrupt:
+        print("Robot stopped manually.")
+
     finally:
-        cleanup_motor()
+        stop_motors()
+        cleanup_ir()
+        cleanup_motors()
